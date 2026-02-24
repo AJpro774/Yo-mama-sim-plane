@@ -1,164 +1,194 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Birkslan Pacifia | 2D Debt Racer</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Terminal Run Mobile</title>
     <style>
-        body { margin: 0; background: #1a1a1a; color: #fbbf24; font-family: monospace; overflow: hidden; }
-        canvas { display: block; margin: 0 auto; background: #333; border: 4px solid #444; }
-        .hud { position: absolute; top: 20px; width: 100%; pointer-events: none; display: flex; justify-content: space-between; padding: 0 40px; }
-        .panel { bg-black/80 p-4 border border-amber-900; }
+        body { 
+            margin: 0; 
+            background: #1a1a1a; 
+            overflow: hidden; 
+            font-family: 'Segoe UI', sans-serif;
+            touch-action: none; /* Prevents accidental zooming/scrolling */
+        }
+        canvas { display: block; background: #f0f0f0; }
+        .ui { 
+            position: absolute; 
+            top: 10px; 
+            width: 100%; 
+            text-align: center; 
+            color: #333; 
+            pointer-events: none; 
+        }
+        .controls-hint {
+            position: absolute;
+            bottom: 20px;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 40px;
+            box-sizing: border-box;
+            color: rgba(0,0,0,0.3);
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
-    <div id="game-ui">
-        <div id="start-screen" class="absolute inset-0 flex flex-col items-center justify-center bg-black z-50">
-            <h1 class="text-6xl font-black italic mb-2 text-white italic tracking-tighter">BIRKSLAN RACING</h1>
-            <p class="mb-8 text-amber-600 text-xs font-bold uppercase tracking-widest">Win 5 Races to Clear Your Debt</p>
-            <div class="grid grid-cols-2 gap-4 mb-8">
-                <button onclick="pickCar(0)" class="border border-amber-900 p-4 hover:bg-amber-900 transition text-xs">AE86 (Agile)</button>
-                <button onclick="pickCar(1)" class="border border-amber-900 p-4 hover:bg-amber-900 transition text-xs">911 (Fast)</button>
-                <button onclick="pickCar(2)" class="border border-amber-900 p-4 hover:bg-amber-900 transition text-xs">R34 (Traction)</button>
-                <button onclick="pickCar(3)" class="border border-amber-900 p-4 hover:bg-amber-900 transition text-xs">F40 (Extreme)</button>
-            </div>
-            <p id="debt-status" class="text-red-500 mb-4 font-bold">CURRENT DEBT: $85,000</p>
-        </div>
-
-        <div class="hud">
-            <div class="panel">
-                <div class="text-[10px] opacity-50">SPEED</div>
-                <div id="speedo" class="text-xl font-bold">0 KM/H</div>
-            </div>
-            <div class="panel text-right">
-                <div class="text-[10px] opacity-50">DEBT REMAINING</div>
-                <div id="debt-ui" class="text-xl font-bold text-red-500">$85,000</div>
-                <div id="race-count" class="text-[10px] mt-1">RACE 1 / 5</div>
-            </div>
-        </div>
+    <div class="ui">
+        <h2 id="score">Score: 0</h2>
     </div>
+    <div class="controls-hint">
+        <span>TAP LEFT: SLIDE</span>
+        <span>TAP RIGHT: JUMP</span>
+    </div>
+    <canvas id="gameCanvas"></canvas>
 
-    <canvas id="raceCanvas"></canvas>
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreElement = document.getElementById('score');
 
-    <script>
-        const canvas = document.getElementById('raceCanvas');
-        const ctx = canvas.getContext('2d');
-        canvas.width = 800;
-        canvas.height = 600;
+// Scale canvas to device screen
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
 
-        let gameActive = false;
-        let debt = 85000;
-        let racesWon = 0;
+const GRAVITY = 0.6;
+const JUMP_FORCE = -14;
+const GROUND_Y = canvas.height * 0.8;
+
+let score = 0;
+let gameActive = true;
+
+const player = {
+    x: 50,
+    y: GROUND_Y - 60,
+    width: 40,
+    height: 60,
+    baseHeight: 60,
+    dy: 0,
+    jumpCount: 0,
+    isSliding: false,
+    color: '#007bff'
+};
+
+const obstacles = [];
+
+function spawnObstacle() {
+    const isHigh = Math.random() > 0.5; // High obstacles must be slid under
+    obstacles.push({
+        x: canvas.width,
+        y: isHigh ? GROUND_Y - 100 : GROUND_Y - 40,
+        width: 40,
+        height: 40,
+        type: isHigh ? 'SENSOR' : 'BAG',
+        color: isHigh ? '#ff0000' : '#8b4513',
+        speed: 7 + (score / 500)
+    });
+}
+
+function update() {
+    if (!gameActive) return;
+
+    // Physics
+    player.dy += GRAVITY;
+    player.y += player.dy;
+
+    if (player.y > GROUND_Y - player.height) {
+        player.y = GROUND_Y - player.height;
+        player.dy = 0;
+        player.jumpCount = 0;
+    }
+
+    if (Math.random() < 0.015) spawnObstacle();
+
+    for (let i = obstacles.length - 1; i >= 0; i--) {
+        const o = obstacles[i];
+        o.x -= o.speed;
+
+        // Collision Logic
+        if (player.x < o.x + o.width &&
+            player.x + player.width > o.x &&
+            player.y < o.y + o.height &&
+            player.y + player.height > o.y) {
+            
+            gameActive = false;
+            if(confirm(`CAUGHT BY SECURITY!\nScore: ${Math.floor(score)}\nTry again?`)) {
+                location.reload();
+            }
+        }
+
+        if (o.x + o.width < 0) obstacles.splice(i, 1);
+    }
+
+    score += 0.2;
+    scoreElement.innerText = `Score: ${Math.floor(score)}`;
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Ground
+    ctx.fillStyle = '#ccc';
+    ctx.fillRect(0, GROUND_Y, canvas.width, canvas.height - GROUND_Y);
+    
+    // Player
+    ctx.fillStyle = player.color;
+    ctx.fillRect(player.x, player.y, player.width, player.height);
+
+    // Obstacles
+    obstacles.forEach(o => {
+        ctx.fillStyle = o.color;
+        ctx.fillRect(o.x, o.y, o.width, o.height);
         
-        const cars = [
-            { name: "AE86", color: "#fff", speed: 5, turn: 0.08 },
-            { name: "911", color: "#f00", speed: 7, turn: 0.06 },
-            { name: "R34", color: "#00f", speed: 6, turn: 0.07 },
-            { name: "F40", color: "#d00", speed: 9, turn: 0.04 }
-        ];
-
-        let player = {
-            x: 400, y: 500, angle: -Math.PI/2,
-            v: 0, car: cars[0],
-            width: 20, height: 40
-        };
-
-        let keys = {};
-        window.addEventListener('keydown', e => keys[e.code] = true);
-        window.addEventListener('keyup', e => keys[e.code] = false);
-
-        function pickCar(idx) {
-            player.car = cars[idx];
-            document.getElementById('start-screen').style.display = 'none';
-            gameActive = true;
-            resetRace();
+        // Draw Laser for Sensors
+        if(o.type === 'SENSOR') {
+            ctx.strokeStyle = 'red';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(o.x, o.y + 20);
+            ctx.lineTo(o.x + o.width, o.y + 20);
+            ctx.stroke();
         }
+    });
+}
 
-        function resetRace() {
-            player.x = 400; player.y = 500; player.v = 0; player.angle = -Math.PI/2;
-            finishLineY = -2000; // Finish line is 2000 pixels up
+// TOUCH CONTROLS
+window.addEventListener('touchstart', (e) => {
+    const touchX = e.touches[0].clientX;
+    
+    // Right side of screen = JUMP
+    if (touchX > window.innerWidth / 2) {
+        if (player.jumpCount < 2) {
+            player.dy = JUMP_FORCE;
+            player.jumpCount++;
+            player.isSliding = false;
+            player.height = player.baseHeight;
         }
-
-        let finishLineY = -2000;
-
-        function update() {
-            if (!gameActive) return;
-
-            // Input
-            if (keys['ArrowUp']) player.v += 0.2;
-            if (keys['ArrowDown']) player.v -= 0.2;
-            if (keys['ArrowLeft']) player.angle -= player.car.turn;
-            if (keys['ArrowRight']) player.angle += player.car.turn;
-
-            player.v *= 0.97; // Friction
-            if (player.v > player.car.speed) player.v = player.car.speed;
-
-            player.x += Math.cos(player.angle) * player.v;
-            player.y += Math.sin(player.angle) * player.v;
-
-            // UI
-            document.getElementById('speedo').innerText = Math.round(player.v * 20) + " KM/H";
-
-            // Win Condition
-            if (player.y < finishLineY) {
-                racesWon++;
-                debt -= 17000;
-                if (racesWon >= 5) {
-                    alert("DEBT CLEARED! YOU ARE FREE.");
-                    location.reload();
-                } else {
-                    alert("RACE WON! $17,000 REMOVED FROM DEBT.");
-                    document.getElementById('debt-ui').innerText = "$" + debt.toLocaleString();
-                    document.getElementById('race-count').innerText = `RACE ${racesWon + 1} / 5`;
-                    resetRace();
-                }
-            }
-        }
-
-        function draw() {
-            ctx.fillStyle = '#222';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-            ctx.save();
-            // Camera follows player
-            ctx.translate(canvas.width/2 - player.x, canvas.height/2 - player.y);
-
-            // Draw Road
-            ctx.fillStyle = '#444';
-            ctx.fillRect(300, -5000, 200, 6000);
+    } 
+    // Left side of screen = SLIDE
+    else {
+        if (player.y >= GROUND_Y - player.height) {
+            player.isSliding = true;
+            player.height = player.baseHeight / 2;
+            player.y = GROUND_Y - player.height;
             
-            // Finish Line
-            ctx.fillStyle = '#fff';
-            for(let i=0; i<10; i++) {
-                ctx.fillRect(300 + (i*20), finishLineY, 20, 20);
-                ctx.fillStyle = ctx.fillStyle === '#fff' ? '#000' : '#fff';
-            }
-
-            // Draw Car (Pixel Art Style)
-            ctx.translate(player.x, player.y);
-            ctx.rotate(player.angle + Math.PI/2);
-            
-            // Body
-            ctx.fillStyle = player.car.color;
-            ctx.fillRect(-player.width/2, -player.height/2, player.width, player.height);
-            // Windows
-            ctx.fillStyle = '#000';
-            ctx.fillRect(-player.width/2 + 2, -player.height/2 + 5, player.width - 4, 10);
-            // Spoiler
-            ctx.fillStyle = '#111';
-            ctx.fillRect(-player.width/2 - 2, player.height/2 - 5, player.width + 4, 3);
-
-            ctx.restore();
+            // Auto-stand up after 700ms
+            setTimeout(() => {
+                player.isSliding = false;
+                player.height = player.baseHeight;
+                player.y = GROUND_Y - player.height;
+            }, 700);
         }
+    }
+});
 
-        function loop() {
-            update();
-            draw();
-            requestAnimationFrame(loop);
-        }
-        loop();
-    </script>
+function gameLoop() {
+    update();
+    draw();
+    requestAnimationFrame(gameLoop);
+}
+
+gameLoop();
+</script>
 </body>
 </html>
-
