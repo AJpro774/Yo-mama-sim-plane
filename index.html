@@ -3,179 +3,161 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Birkslan Pacifia | A321XLR Debt Sim</title>
+    <title>Birkslan Pacifia | 2D Debt Racer</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.158.0/three.min.js"></script>
     <style>
-        body { margin: 0; background: #000; color: #fbbf24; font-family: 'Courier New', monospace; overflow: hidden; }
-        #game-ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
-        .interactive { pointer-events: auto; }
-        .crt::before {
-            content: " "; display: block; position: absolute; top: 0; left: 0; bottom: 0; right: 0;
-            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
-            z-index: 100; background-size: 100% 3px, 3px 100%; pointer-events: none;
-        }
+        body { margin: 0; background: #1a1a1a; color: #fbbf24; font-family: monospace; overflow: hidden; }
+        canvas { display: block; margin: 0 auto; background: #333; border: 4px solid #444; }
+        .hud { position: absolute; top: 20px; width: 100%; pointer-events: none; display: flex; justify-content: space-between; padding: 0 40px; }
+        .panel { bg-black/80 p-4 border border-amber-900; }
     </style>
 </head>
-<body class="crt">
+<body>
     <div id="game-ui">
-        <div id="hud" class="p-6 flex justify-between items-start hidden">
-            <div class="bg-black/80 border border-amber-900 p-4">
-                <div class="text-[10px] opacity-50">CABIN STRESS</div>
-                <div class="w-48 bg-zinc-800 h-1.5 mt-1"><div id="stress-bar" class="bg-red-600 h-full w-0 transition-all"></div></div>
-                <div class="mt-4 text-[10px] opacity-50" id="flight-counter">FLIGHT 1 / 5</div>
+        <div id="start-screen" class="absolute inset-0 flex flex-col items-center justify-center bg-black z-50">
+            <h1 class="text-6xl font-black italic mb-2 text-white italic tracking-tighter">BIRKSLAN RACING</h1>
+            <p class="mb-8 text-amber-600 text-xs font-bold uppercase tracking-widest">Win 5 Races to Clear Your Debt</p>
+            <div class="grid grid-cols-2 gap-4 mb-8">
+                <button onclick="pickCar(0)" class="border border-amber-900 p-4 hover:bg-amber-900 transition text-xs">AE86 (Agile)</button>
+                <button onclick="pickCar(1)" class="border border-amber-900 p-4 hover:bg-amber-900 transition text-xs">911 (Fast)</button>
+                <button onclick="pickCar(2)" class="border border-amber-900 p-4 hover:bg-amber-900 transition text-xs">R34 (Traction)</button>
+                <button onclick="pickCar(3)" class="border border-amber-900 p-4 hover:bg-amber-900 transition text-xs">F40 (Extreme)</button>
             </div>
-            <div class="bg-black/80 border border-amber-900 p-4 text-right">
-                <div class="text-[10px] opacity-50 uppercase">Debt to Birkslan Corp</div>
-                <div id="debt-display" class="text-2xl font-bold text-red-500">$85,000</div>
+            <p id="debt-status" class="text-red-500 mb-4 font-bold">CURRENT DEBT: $85,000</p>
+        </div>
+
+        <div class="hud">
+            <div class="panel">
+                <div class="text-[10px] opacity-50">SPEED</div>
+                <div id="speedo" class="text-xl font-bold">0 KM/H</div>
             </div>
-        </div>
-
-        <div id="start-screen" class="h-full flex flex-col items-center justify-center p-10 text-center bg-zinc-950 interactive">
-            <h1 class="text-6xl font-black italic mb-2 text-white italic tracking-tighter">BIRKSLAN PACIFIA</h1>
-            <p class="mb-10 text-amber-600 tracking-[0.3em] text-[10px] font-bold uppercase">The only airline that would hire you.</p>
-            <div class="bg-black border-2 border-amber-900 p-8 max-w-md shadow-2xl">
-                <input id="player-name" type="text" placeholder="NAME" class="bg-zinc-900 border border-amber-900 p-2 mb-4 w-full text-center outline-none focus:border-white">
-                <button onclick="startPhase('TAXI')" class="w-full bg-amber-600 text-black py-4 font-black hover:bg-white transition-all uppercase">Check In</button>
+            <div class="panel text-right">
+                <div class="text-[10px] opacity-50">DEBT REMAINING</div>
+                <div id="debt-ui" class="text-xl font-bold text-red-500">$85,000</div>
+                <div id="race-count" class="text-[10px] mt-1">RACE 1 / 5</div>
             </div>
-        </div>
-
-        <div id="taxi-screen" class="h-full hidden flex flex-col items-center justify-center p-10 text-center bg-zinc-900 interactive">
-            <div class="animate-pulse mb-4 text-4xl">🚕</div>
-            <h2 class="text-xl mb-4 italic">TAXI EN ROUTE TO LAX...</h2>
-            <p class="text-xs opacity-50 mb-10">Meter running. Every minute adds $5 to your debt.</p>
-            <button onclick="startPhase('CABIN')" class="border-2 border-amber-600 px-12 py-3 hover:bg-amber-600 hover:text-black font-bold">BOARD A321XLR</button>
-        </div>
-
-        <div id="terminal" class="absolute bottom-10 left-1/2 -translate-x-1/2 w-full max-w-xl px-4 hidden">
-            <div class="bg-black/90 border-2 border-amber-600 p-5 interactive">
-                <div class="text-[10px] uppercase mb-3 text-amber-800 border-b border-amber-900/50 pb-1 flex justify-between">
-                    <span>Passenger AI Interface</span>
-                    <span id="seat-id">...</span>
-                </div>
-                <p id="dialogue-box" class="text-sm mb-6 h-12 italic text-white leading-tight">Boarding complete. Cross-check doors.</p>
-                <div class="grid grid-cols-2 gap-3">
-                    <button onclick="aiReply('service')" class="border border-amber-600 p-2 text-[10px] hover:bg-amber-600 hover:text-black">ASSIST (Lowers Stress)</button>
-                    <button onclick="aiReply('stern')" class="border border-amber-600 p-2 text-[10px] hover:bg-amber-600 hover:text-black">REPRIMAND (Risk Rep)</button>
-                    <button onclick="endFlight()" class="col-span-2 bg-amber-600 text-black p-3 font-black text-xs uppercase mt-2">Attempt Landing (HNL)</button>
-                </div>
-            </div>
-        </div>
-
-        <div id="emergency-alert" class="absolute inset-0 bg-red-900/60 hidden flex-col items-center justify-center z-50 text-white p-10 text-center">
-            <h2 class="text-6xl font-black mb-4">EMERGENCY</h2>
-            <p id="emergency-desc" class="mb-10 text-2xl"></p>
-            <button onclick="resolveEmergency()" class="bg-white text-red-900 px-10 py-4 font-black text-xl hover:bg-black hover:text-white">IMPROVISE</button>
-        </div>
-
-        <div id="freedom-screen" class="h-full hidden flex flex-col items-center justify-center bg-white text-black p-20 text-center interactive">
-            <h1 class="text-8xl font-black mb-4 italic tracking-tighter">DEBT FREE</h1>
-            <p class="text-xl mb-12 opacity-80 max-w-lg font-bold">5 FLIGHTS SURVIVED. BIRKSLAN HAS RELEASED YOUR CONTRACT.</p>
-            <button onclick="localStorage.clear(); window.location.reload()" class="underline font-black tracking-widest">ENROLL IN MORE SCHOOL?</button>
         </div>
     </div>
 
+    <canvas id="raceCanvas"></canvas>
+
     <script>
-        let scene, camera, renderer, fuselage;
-        let stress = 0, flights = 0, debt = 85000;
+        const canvas = document.getElementById('raceCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 800;
+        canvas.height = 600;
 
-        if(localStorage.getItem('birkslan_debt')) {
-            debt = parseInt(localStorage.getItem('birkslan_debt'));
-            flights = parseInt(localStorage.getItem('birkslan_flights'));
+        let gameActive = false;
+        let debt = 85000;
+        let racesWon = 0;
+        
+        const cars = [
+            { name: "AE86", color: "#fff", speed: 5, turn: 0.08 },
+            { name: "911", color: "#f00", speed: 7, turn: 0.06 },
+            { name: "R34", color: "#00f", speed: 6, turn: 0.07 },
+            { name: "F40", color: "#d00", speed: 9, turn: 0.04 }
+        ];
+
+        let player = {
+            x: 400, y: 500, angle: -Math.PI/2,
+            v: 0, car: cars[0],
+            width: 20, height: 40
+        };
+
+        let keys = {};
+        window.addEventListener('keydown', e => keys[e.code] = true);
+        window.addEventListener('keyup', e => keys[e.code] = false);
+
+        function pickCar(idx) {
+            player.car = cars[idx];
+            document.getElementById('start-screen').style.display = 'none';
+            gameActive = true;
+            resetRace();
         }
 
-        function init3D() {
-            scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-            renderer = new THREE.WebGLRenderer({ antialias: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            document.body.appendChild(renderer.domElement);
-
-            const geo = new THREE.CylinderGeometry(2.8, 2.8, 60, 32, 1, true);
-            const mat = new THREE.MeshStandardMaterial({ color: 0x080808, side: THREE.BackSide, metalness: 0.9, roughness: 0.1 });
-            fuselage = new THREE.Mesh(geo, mat);
-            fuselage.rotation.z = Math.PI / 2;
-            scene.add(fuselage);
-
-            const light = new THREE.PointLight(0xffaa00, 2, 50);
-            light.position.set(0, 2.5, 0);
-            scene.add(light);
-            scene.add(new THREE.AmbientLight(0x202020));
-
-            camera.position.set(0, 1.5, 5);
-            animate();
+        function resetRace() {
+            player.x = 400; player.y = 500; player.v = 0; player.angle = -Math.PI/2;
+            finishLineY = -2000; // Finish line is 2000 pixels up
         }
 
-        function animate() {
-            requestAnimationFrame(animate);
-            if(stress > 20) {
-                camera.position.y = 1.5 + Math.sin(Date.now() * 0.02) * (stress/2500);
-                camera.rotation.z = Math.sin(Date.now() * 0.01) * (stress/4000);
-            }
-            renderer.render(scene, camera);
-        }
+        let finishLineY = -2000;
 
-        function startPhase(phase) {
-            document.querySelectorAll('#game-ui > div').forEach(d => d.classList.add('hidden'));
-            if(phase === 'TAXI') document.getElementById('taxi-screen').classList.remove('hidden');
-            if(phase === 'CABIN') {
-                document.getElementById('hud').classList.remove('hidden');
-                document.getElementById('terminal').classList.remove('hidden');
-                init3D();
-            }
-        }
+        function update() {
+            if (!gameActive) return;
 
-        function aiReply(type) {
-            const passengers = ["Karen in 4C", "Entitled Business Man", "Tired Mother", "Drunk Passenger"];
-            const gripes = ["The WiFi is slower than dial-up.", "My seat won't recline an extra 2 inches.", "I can see the engine rattling.", "Where is my complimentary gin?"];
-            document.getElementById('dialogue-box').innerText = `${passengers[Math.floor(Math.random()*4)]}: "${gripes[Math.floor(Math.random()*4)]}"`;
-            stress = Math.min(100, stress + 12);
-            updateUI();
-            if(stress > 60 && Math.random() > 0.6) triggerEmergency();
-        }
+            // Input
+            if (keys['ArrowUp']) player.v += 0.2;
+            if (keys['ArrowDown']) player.v -= 0.2;
+            if (keys['ArrowLeft']) player.angle -= player.car.turn;
+            if (keys['ArrowRight']) player.angle += player.car.turn;
 
-        function triggerEmergency() {
-            const e = ["ENGINE SPUTTER", "UNRULY PASSENGER", "RAPID DECOMPRESSION", "LAVATORY FIRE"];
-            document.getElementById('emergency-desc').innerText = e[Math.floor(Math.random()*e.length)];
-            document.getElementById('emergency-alert').classList.remove('hidden');
-            document.getElementById('emergency-alert').classList.add('flex');
-        }
+            player.v *= 0.97; // Friction
+            if (player.v > player.car.speed) player.v = player.car.speed;
 
-        function resolveEmergency() {
-            stress -= 30;
-            document.getElementById('emergency-alert').classList.add('hidden');
-            document.getElementById('emergency-alert').classList.remove('flex');
-            updateUI();
-        }
+            player.x += Math.cos(player.angle) * player.v;
+            player.y += Math.sin(player.angle) * player.v;
 
-        function endFlight() {
-            flights++;
-            debt -= 17000;
-            stress = 0;
-            localStorage.setItem('birkslan_debt', debt);
-            localStorage.setItem('birkslan_flights', flights);
-            if(flights >= 5) {
-                document.querySelectorAll('#game-ui > div').forEach(d => d.classList.add('hidden'));
-                document.getElementById('freedom-screen').classList.remove('hidden');
-            } else {
-                updateUI();
-                startPhase('TAXI');
+            // UI
+            document.getElementById('speedo').innerText = Math.round(player.v * 20) + " KM/H";
+
+            // Win Condition
+            if (player.y < finishLineY) {
+                racesWon++;
+                debt -= 17000;
+                if (racesWon >= 5) {
+                    alert("DEBT CLEARED! YOU ARE FREE.");
+                    location.reload();
+                } else {
+                    alert("RACE WON! $17,000 REMOVED FROM DEBT.");
+                    document.getElementById('debt-ui').innerText = "$" + debt.toLocaleString();
+                    document.getElementById('race-count').innerText = `RACE ${racesWon + 1} / 5`;
+                    resetRace();
+                }
             }
         }
 
-        function updateUI() {
-            document.getElementById('debt-display').innerText = "$" + debt.toLocaleString();
-            document.getElementById('flight-counter').innerText = `FLIGHT ${flights + 1} / 5`;
-            document.getElementById('stress-bar').style.width = stress + "%";
+        function draw() {
+            ctx.fillStyle = '#222';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.save();
+            // Camera follows player
+            ctx.translate(canvas.width/2 - player.x, canvas.height/2 - player.y);
+
+            // Draw Road
+            ctx.fillStyle = '#444';
+            ctx.fillRect(300, -5000, 200, 6000);
+            
+            // Finish Line
+            ctx.fillStyle = '#fff';
+            for(let i=0; i<10; i++) {
+                ctx.fillRect(300 + (i*20), finishLineY, 20, 20);
+                ctx.fillStyle = ctx.fillStyle === '#fff' ? '#000' : '#fff';
+            }
+
+            // Draw Car (Pixel Art Style)
+            ctx.translate(player.x, player.y);
+            ctx.rotate(player.angle + Math.PI/2);
+            
+            // Body
+            ctx.fillStyle = player.car.color;
+            ctx.fillRect(-player.width/2, -player.height/2, player.width, player.height);
+            // Windows
+            ctx.fillStyle = '#000';
+            ctx.fillRect(-player.width/2 + 2, -player.height/2 + 5, player.width - 4, 10);
+            // Spoiler
+            ctx.fillStyle = '#111';
+            ctx.fillRect(-player.width/2 - 2, player.height/2 - 5, player.width + 4, 3);
+
+            ctx.restore();
         }
 
-        window.addEventListener('resize', () => {
-            if(camera) {
-                camera.aspect = window.innerWidth / window.innerHeight;
-                camera.updateProjectionMatrix();
-                renderer.setSize(window.innerWidth, window.innerHeight);
-            }
-        });
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+        loop();
     </script>
 </body>
 </html>
