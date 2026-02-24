@@ -1,241 +1,182 @@
-// To run this, install these first:
-// npm install three @react-three/fiber @react-three/drei zustand framer-motion lucide-react
-
-import React, { useRef, useState, useEffect, useMemo } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { PerspectiveCamera, Environment, Text, Float, Stars, MeshWobbleMaterial } from '@react-three/drei';
-import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import { motion, AnimatePresence } from 'framer-motion';
-import { AlertTriangle, User, DollarSign, Plane, Timer, Briefcase } from 'lucide-react';
-
-/** 1. GLOBAL STATE (The Debt Engine) **/
-const useStore = create(persist((set) => ({
-  playerName: "",
-  phase: 'START', // START, TAXI, CABIN, EMERGENCY, FREEDOM
-  debt: 85000,
-  flightsCompleted: 0,
-  reputation: 50,
-  stress: 0,
-  currentEvent: null,
-
-  setName: (name) => set({ playerName: name }),
-  setPhase: (phase) => set({ phase }),
-  
-  triggerEmergency: (event) => set({ phase: 'EMERGENCY', currentEvent: event }),
-  
-  resolveEmergency: (repChange, debtChange) => set((state) => ({
-    phase: 'CABIN',
-    reputation: Math.max(0, state.reputation + repChange),
-    debt: state.debt + debtChange,
-    currentEvent: null,
-    stress: state.stress + 20
-  })),
-
-  completeFlight: () => set((state) => {
-    const pay = 17000;
-    const isLastFlight = state.flightsCompleted + 1 >= 5;
-    return {
-      flightsCompleted: state.flightsCompleted + 1,
-      debt: Math.max(0, state.debt - pay),
-      phase: isLastFlight ? 'FREEDOM' : 'START',
-      stress: 0
-    };
-  }),
-
-  addStress: (amt) => set((state) => ({ 
-    stress: Math.min(100, Math.max(0, state.stress + amt))
-  }))
-}), { name: 'birkslan-v2-storage' }));
-
-/** 2. 3D COMPONENTS **/
-function Passenger({ position, id, mood, onInteract }) {
-  const [hovered, setHover] = useState(false);
-  return (
-    <group position={position} onPointerOver={() => setHover(true)} onPointerOut={() => setHover(false)} onClick={() => onInteract(id)}>
-      <mesh castShadow>
-        <capsuleGeometry args={[0.3, 0.7, 4, 16]} />
-        <meshStandardMaterial color={hovered ? "#ffb000" : (mood === 'angry' ? "#722" : "#444")} />
-      </mesh>
-      <Text position={[0, 1.1, 0]} fontSize={0.12} color="white" font="monospace">SEAT {id}</Text>
-    </group>
-  );
-}
-
-function AirplaneScene({ onPassengerClick }) {
-  const stress = useStore(s => s.stress);
-  const cabinRef = useRef();
-
-  useFrame((state) => {
-    const t = state.clock.getElapsedTime();
-    // Physical shake based on stress/turbulence
-    if (stress > 30) {
-      state.camera.position.y = 1.5 + Math.sin(t * 25) * (stress / 2000);
-      state.camera.rotation.z = Math.sin(t * 15) * (stress / 3000);
-    }
-  });
-
-  return (
-    <>
-      <PerspectiveCamera makeDefault position={[0, 1.5, 5]} />
-      <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
-      <ambientLight intensity={0.2} />
-      <pointLight position={[0, 3, -5]} intensity={2} color="#ffb000" />
-      
-      <group ref={cabinRef}>
-        {/* Airplane Tube */}
-        <mesh rotation={[0, 0, Math.PI / 2]}>
-          <cylinderGeometry args={[2.5, 2.5, 60, 32, 1, true]} />
-          <meshStandardMaterial color="#0a0a0a" side={2} metalness={0.8} roughness={0.2} />
-        </mesh>
-
-        {/* Rows of Passengers */}
-        {Array.from({ length: 15 }).map((_, i) => (
-          <group key={i} position={[0, 0, -i * 2.2]}>
-            <Passenger position={[-1.3, 0.4, 0]} id={`${i+1}A`} onInteract={onPassengerClick} />
-            <Passenger position={[1.3, 0.4, 0]} id={`${i+1}F`} onInteract={onPassengerClick} mood={i % 3 === 0 ? 'angry' : 'chill'} />
-          </group>
-        ))}
-      </group>
-
-      <Environment preset="night" />
-    </>
-  );
-}
-
-/** 3. MAIN UI LOGIC **/
-export default function BirkslanPacifia() {
-  const state = useStore();
-  const [dialogue, setDialogue] = useState("System: Awaiting boarding...");
-
-  const emergencies = [
-    { title: "Screaming Infant", desc: "A passenger in 4F is threatening to open the exit door because of a crying baby.", options: [
-      { text: "Duct tape passenger ($500 Fine)", rep: -20, debt: 500 },
-      { text: "Offer free mini-gin", rep: 10, debt: 20 }
-    ]},
-    { title: "Cabin Decompression", desc: "Oxygen masks deployed. Most are empty.", options: [
-      { text: "Help VIPs first", rep: -30, debt: -2000 },
-      { text: "Standard protocol", rep: 20, debt: 0 }
-    ]}
-  ];
-
-  const handlePassenger = (id) => {
-    const lines = ["Why is the water crunchy?", "The wing is on fire, is that standard?", "Can I upgrade for $2?"];
-    setDialogue(`Seat ${id}: "${lines[Math.floor(Math.random() * lines.length)]}"`);
-    state.addStress(8);
-    if (state.stress > 60 && Math.random() > 0.7) {
-      state.triggerEmergency(emergencies[Math.floor(Math.random() * emergencies.length)]);
-    }
-  };
-
-  return (
-    <div className="h-screen w-screen bg-black text-amber-500 font-mono overflow-hidden select-none">
-      
-      {/* HUD HEADER */}
-      {state.phase !== 'START' && (
-        <div className="absolute top-0 w-full p-4 flex justify-between z-10 bg-gradient-to-b from-black to-transparent">
-          <div className="flex gap-6">
-            <div className="border border-amber-900 px-3 py-1">
-              <span className="text-[10px] block opacity-50">DEBT</span>
-              <span className="text-red-500 font-bold">${state.debt.toLocaleString()}</span>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Birkslan Pacifia | A321XLR Debt Sim</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.158.0/three.min.js"></script>
+    <style>
+        body { margin: 0; background: #000; color: #fbbf24; font-family: 'Courier New', monospace; overflow: hidden; }
+        #game-ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+        .interactive { pointer-events: auto; }
+        .crt::before {
+            content: " "; display: block; position: absolute; top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+            z-index: 100; background-size: 100% 3px, 3px 100%; pointer-events: none;
+        }
+    </style>
+</head>
+<body class="crt">
+    <div id="game-ui">
+        <div id="hud" class="p-6 flex justify-between items-start hidden">
+            <div class="bg-black/80 border border-amber-900 p-4">
+                <div class="text-[10px] opacity-50">CABIN STRESS</div>
+                <div class="w-48 bg-zinc-800 h-1.5 mt-1"><div id="stress-bar" class="bg-red-600 h-full w-0 transition-all"></div></div>
+                <div class="mt-4 text-[10px] opacity-50" id="flight-counter">FLIGHT 1 / 5</div>
             </div>
-            <div className="border border-amber-900 px-3 py-1">
-              <span className="text-[10px] block opacity-50">REPUTATION</span>
-              <span className="text-white font-bold">{state.reputation}/100</span>
+            <div class="bg-black/80 border border-amber-900 p-4 text-right">
+                <div class="text-[10px] opacity-50 uppercase">Debt to Birkslan Corp</div>
+                <div id="debt-display" class="text-2xl font-bold text-red-500">$85,000</div>
             </div>
-          </div>
-          <div className="text-right">
-            <div className="text-[10px] opacity-50">FLIGHT {state.flightsCompleted + 1} OF 5</div>
-            <div className="text-white text-xs">LAX ✈ HNL (A321XLR)</div>
-          </div>
         </div>
-      )}
 
-      {/* GAME PHASES */}
-      <AnimatePresence mode="wait">
-        {state.phase === 'START' && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full flex flex-col items-center justify-center p-12 text-center bg-zinc-950">
-            <div className="scanline absolute inset-0 pointer-events-none opacity-20" />
-            <Plane size={64} className="mb-4 text-amber-600" />
-            <h1 className="text-7xl font-black italic tracking-tighter mb-2">BIRKSLAN PACIFIA</h1>
-            <p className="text-amber-800 mb-10 tracking-[0.5em] uppercase text-xs">A Subsidiary of DebtCorp Logistics</p>
-            <div className="max-w-md bg-zinc-900 border-2 border-amber-900 p-8 shadow-2xl">
-              <p className="text-sm leading-relaxed mb-6 opacity-80 italic">
-                "Welcome to the only airline that would ignore your previous safety violations. Complete 5 legs to Hawaii to pay off your training costs."
-              </p>
-              <input 
-                type="text" placeholder="ENTER SURNAME" 
-                className="w-full bg-black border border-amber-900 p-3 mb-4 text-center focus:border-amber-400 outline-none"
-                onChange={(e) => state.setName(e.target.value)}
-              />
-              <button onClick={() => state.setPhase('TAXI')} className="w-full bg-amber-600 text-black py-4 font-black hover:bg-white transition-all uppercase">Accept Terms</button>
+        <div id="start-screen" class="h-full flex flex-col items-center justify-center p-10 text-center bg-zinc-950 interactive">
+            <h1 class="text-6xl font-black italic mb-2 text-white italic tracking-tighter">BIRKSLAN PACIFIA</h1>
+            <p class="mb-10 text-amber-600 tracking-[0.3em] text-[10px] font-bold uppercase">The only airline that would hire you.</p>
+            <div class="bg-black border-2 border-amber-900 p-8 max-w-md shadow-2xl">
+                <input id="player-name" type="text" placeholder="NAME" class="bg-zinc-900 border border-amber-900 p-2 mb-4 w-full text-center outline-none focus:border-white">
+                <button onclick="startPhase('TAXI')" class="w-full bg-amber-600 text-black py-4 font-black hover:bg-white transition-all uppercase">Check In</button>
             </div>
-          </motion.div>
-        )}
+        </div>
 
-        {state.phase === 'TAXI' && (
-          <motion.div initial={{ x: 100 }} animate={{ x: 0 }} className="h-full flex flex-col items-center justify-center">
-            <Briefcase size={40} className="animate-bounce mb-4" />
-            <h2 className="text-2xl mb-2 italic tracking-widest uppercase">Transit to LAX Terminal 7</h2>
-            <p className="text-[10px] opacity-40 mb-8">TAXI FARE: $45.00 (DEBITED FROM FINAL PAY)</p>
-            <button onClick={state.startFlight} className="border-2 border-amber-600 px-12 py-3 hover:bg-amber-600 hover:text-black font-bold">BOARD AIRCRAFT</button>
-          </motion.div>
-        )}
+        <div id="taxi-screen" class="h-full hidden flex flex-col items-center justify-center p-10 text-center bg-zinc-900 interactive">
+            <div class="animate-pulse mb-4 text-4xl">🚕</div>
+            <h2 class="text-xl mb-4 italic">TAXI EN ROUTE TO LAX...</h2>
+            <p class="text-xs opacity-50 mb-10">Meter running. Every minute adds $5 to your debt.</p>
+            <button onclick="startPhase('CABIN')" class="border-2 border-amber-600 px-12 py-3 hover:bg-amber-600 hover:text-black font-bold">BOARD A321XLR</button>
+        </div>
 
-        {state.phase === 'CABIN' && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="h-full w-full relative">
-            <Canvas shadows dpr={[1, 2]}>
-              <AirplaneScene onPassengerClick={handlePassenger} />
-            </Canvas>
-
-            {/* INTERACTION UI */}
-            <div className="absolute bottom-10 left-1/2 -translate-x-1/2 w-[90%] max-w-2xl">
-              <div className="bg-black/90 border-2 border-amber-900 p-6 backdrop-blur-md shadow-[0_0_50px_rgba(0,0,0,1)]">
-                <div className="flex items-center gap-2 mb-4 text-[10px] text-amber-800 border-b border-amber-900/30 pb-2">
-                  <User size={12} /> PASSENGER_COMMS_v4.1
+        <div id="terminal" class="absolute bottom-10 left-1/2 -translate-x-1/2 w-full max-w-xl px-4 hidden">
+            <div class="bg-black/90 border-2 border-amber-600 p-5 interactive">
+                <div class="text-[10px] uppercase mb-3 text-amber-800 border-b border-amber-900/50 pb-1 flex justify-between">
+                    <span>Passenger AI Interface</span>
+                    <span id="seat-id">...</span>
                 </div>
-                <p className="text-white text-lg italic mb-6 min-h-[3rem]">{dialogue}</p>
-                <div className="grid grid-cols-2 gap-4">
-                  <button onClick={() => { setDialogue("You: 'I'll see what I can do.'"); state.addStress(-10); }} className="border border-amber-900 p-3 text-xs hover:bg-amber-900 transition-all uppercase">Offer Pretzels</button>
-                  <button onClick={() => { setDialogue("You: 'Please remain seated.'"); state.addStress(5); }} className="border border-amber-900 p-3 text-xs hover:bg-amber-900 transition-all uppercase">Dismiss Request</button>
-                  <button onClick={state.completeFlight} className="col-span-2 bg-amber-600 text-black p-3 font-black hover:bg-white uppercase tracking-widest text-xs">Attempt Landing (End Leg)</button>
+                <p id="dialogue-box" class="text-sm mb-6 h-12 italic text-white leading-tight">Boarding complete. Cross-check doors.</p>
+                <div class="grid grid-cols-2 gap-3">
+                    <button onclick="aiReply('service')" class="border border-amber-600 p-2 text-[10px] hover:bg-amber-600 hover:text-black">ASSIST (Lowers Stress)</button>
+                    <button onclick="aiReply('stern')" class="border border-amber-600 p-2 text-[10px] hover:bg-amber-600 hover:text-black">REPRIMAND (Risk Rep)</button>
+                    <button onclick="endFlight()" class="col-span-2 bg-amber-600 text-black p-3 font-black text-xs uppercase mt-2">Attempt Landing (HNL)</button>
                 </div>
-              </div>
-              <div className="mt-4 flex justify-between items-center text-[10px] opacity-50">
-                <div className="flex items-center gap-2">STRESS METER: <div className="w-32 bg-zinc-800 h-1"><div className="bg-red-600 h-full transition-all duration-500" style={{ width: `${state.stress}%` }} /></div></div>
-                <div>AUTOPILOT: <span className="text-green-500">ACTIVE</span></div>
-              </div>
             </div>
-          </motion.div>
-        )}
+        </div>
 
-        {state.phase === 'EMERGENCY' && (
-          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="h-full w-full bg-red-950/90 flex flex-col items-center justify-center p-10 z-50">
-            <AlertTriangle size={80} className="text-white animate-pulse mb-6" />
-            <h2 className="text-4xl font-black text-white mb-2 uppercase italic tracking-tighter">{state.currentEvent?.title}</h2>
-            <p className="text-white/80 max-w-lg text-center mb-10 text-xl leading-relaxed">"{state.currentEvent?.desc}"</p>
-            <div className="flex flex-col gap-4 w-full max-w-md">
-              {state.currentEvent?.options.map((opt, i) => (
-                <button key={i} onClick={() => state.resolveEmergency(opt.rep, opt.debt)} className="border-2 border-white text-white p-4 font-bold hover:bg-white hover:text-red-900 uppercase transition-all">
-                  {opt.text}
-                </button>
-              ))}
-            </div>
-          </motion.div>
-        )}
+        <div id="emergency-alert" class="absolute inset-0 bg-red-900/60 hidden flex-col items-center justify-center z-50 text-white p-10 text-center">
+            <h2 class="text-6xl font-black mb-4">EMERGENCY</h2>
+            <p id="emergency-desc" class="mb-10 text-2xl"></p>
+            <button onclick="resolveEmergency()" class="bg-white text-red-900 px-10 py-4 font-black text-xl hover:bg-black hover:text-white">IMPROVISE</button>
+        </div>
 
-        {state.phase === 'FREEDOM' && (
-          <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} className="h-full flex flex-col items-center justify-center text-center p-20 bg-white text-black">
-            <h1 className="text-9xl font-black italic tracking-tighter mb-4">DEBT FREE</h1>
-            <p className="text-2xl max-w-2xl font-light leading-relaxed mb-12">
-              You survived 5 flights with Birkslan Pacifia. Your debt has been settled. You are currently standing in the Honolulu airport with your luggage and exactly $0.00. 
-            </p>
-            <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="bg-black text-white px-10 py-4 font-black uppercase tracking-widest">Restart Life</button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+        <div id="freedom-screen" class="h-full hidden flex flex-col items-center justify-center bg-white text-black p-20 text-center interactive">
+            <h1 class="text-8xl font-black mb-4 italic tracking-tighter">DEBT FREE</h1>
+            <p class="text-xl mb-12 opacity-80 max-w-lg font-bold">5 FLIGHTS SURVIVED. BIRKSLAN HAS RELEASED YOUR CONTRACT.</p>
+            <button onclick="localStorage.clear(); window.location.reload()" class="underline font-black tracking-widest">ENROLL IN MORE SCHOOL?</button>
+        </div>
     </div>
-  );
-}
 
+    <script>
+        let scene, camera, renderer, fuselage;
+        let stress = 0, flights = 0, debt = 85000;
+
+        if(localStorage.getItem('birkslan_debt')) {
+            debt = parseInt(localStorage.getItem('birkslan_debt'));
+            flights = parseInt(localStorage.getItem('birkslan_flights'));
+        }
+
+        function init3D() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            const geo = new THREE.CylinderGeometry(2.8, 2.8, 60, 32, 1, true);
+            const mat = new THREE.MeshStandardMaterial({ color: 0x080808, side: THREE.BackSide, metalness: 0.9, roughness: 0.1 });
+            fuselage = new THREE.Mesh(geo, mat);
+            fuselage.rotation.z = Math.PI / 2;
+            scene.add(fuselage);
+
+            const light = new THREE.PointLight(0xffaa00, 2, 50);
+            light.position.set(0, 2.5, 0);
+            scene.add(light);
+            scene.add(new THREE.AmbientLight(0x202020));
+
+            camera.position.set(0, 1.5, 5);
+            animate();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if(stress > 20) {
+                camera.position.y = 1.5 + Math.sin(Date.now() * 0.02) * (stress/2500);
+                camera.rotation.z = Math.sin(Date.now() * 0.01) * (stress/4000);
+            }
+            renderer.render(scene, camera);
+        }
+
+        function startPhase(phase) {
+            document.querySelectorAll('#game-ui > div').forEach(d => d.classList.add('hidden'));
+            if(phase === 'TAXI') document.getElementById('taxi-screen').classList.remove('hidden');
+            if(phase === 'CABIN') {
+                document.getElementById('hud').classList.remove('hidden');
+                document.getElementById('terminal').classList.remove('hidden');
+                init3D();
+            }
+        }
+
+        function aiReply(type) {
+            const passengers = ["Karen in 4C", "Entitled Business Man", "Tired Mother", "Drunk Passenger"];
+            const gripes = ["The WiFi is slower than dial-up.", "My seat won't recline an extra 2 inches.", "I can see the engine rattling.", "Where is my complimentary gin?"];
+            document.getElementById('dialogue-box').innerText = `${passengers[Math.floor(Math.random()*4)]}: "${gripes[Math.floor(Math.random()*4)]}"`;
+            stress = Math.min(100, stress + 12);
+            updateUI();
+            if(stress > 60 && Math.random() > 0.6) triggerEmergency();
+        }
+
+        function triggerEmergency() {
+            const e = ["ENGINE SPUTTER", "UNRULY PASSENGER", "RAPID DECOMPRESSION", "LAVATORY FIRE"];
+            document.getElementById('emergency-desc').innerText = e[Math.floor(Math.random()*e.length)];
+            document.getElementById('emergency-alert').classList.remove('hidden');
+            document.getElementById('emergency-alert').classList.add('flex');
+        }
+
+        function resolveEmergency() {
+            stress -= 30;
+            document.getElementById('emergency-alert').classList.add('hidden');
+            document.getElementById('emergency-alert').classList.remove('flex');
+            updateUI();
+        }
+
+        function endFlight() {
+            flights++;
+            debt -= 17000;
+            stress = 0;
+            localStorage.setItem('birkslan_debt', debt);
+            localStorage.setItem('birkslan_flights', flights);
+            if(flights >= 5) {
+                document.querySelectorAll('#game-ui > div').forEach(d => d.classList.add('hidden'));
+                document.getElementById('freedom-screen').classList.remove('hidden');
+            } else {
+                updateUI();
+                startPhase('TAXI');
+            }
+        }
+
+        function updateUI() {
+            document.getElementById('debt-display').innerText = "$" + debt.toLocaleString();
+            document.getElementById('flight-counter').innerText = `FLIGHT ${flights + 1} / 5`;
+            document.getElementById('stress-bar').style.width = stress + "%";
+        }
+
+        window.addEventListener('resize', () => {
+            if(camera) {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+        });
+    </script>
+</body>
+</html>
 
